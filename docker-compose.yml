@@ -1,0 +1,9 @@
+services:
+  client-service:
+    build: .
+    container_name: commandes-service-container
+    ports:
+      - "3006:3000"
+    # volumes:
+    #   - ./:/app
+    command: npm run start
