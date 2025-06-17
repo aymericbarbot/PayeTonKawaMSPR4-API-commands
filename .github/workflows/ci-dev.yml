@@ -48,7 +48,7 @@ jobs:
     - id: compose
       run: |
         docker compose -f docker-compose.yml \
-                       up --abort-on-container-exit --exit-code-from sut
+                       up --abort-on-container-exit --exit-code-from client-service
       continue-on-error: true
     - id: comp_ok
       run: echo "state=${{ steps.compose.outcome }}" >> "$GITHUB_OUTPUT"
