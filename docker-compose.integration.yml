@@ -1,0 +1,11 @@
+# docker-compose.integration.yml
+version: "3.9"
+
+services:
+  sut:                           # System Under Test
+    build:
+      context: .
+      dockerfile: Dockerfile     # ton Dockerfile existant
+    command: npm run test:e2e    # script qui exécute VOS tests et s'arrête
+    environment:
+      - NODE_ENV=test

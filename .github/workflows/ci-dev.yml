@@ -1,94 +1,118 @@
-# .github/workflows/ci-ci-test.yml
-name: ci-dev
+name: ci-dev            # exécute ce workflow sur les push dans ci-test
 
 on:
   push:
-    branches: [ ci-test ]      # déclenché après merge d’une PR
+    branches: [ci-test]
 
 permissions:
   contents: write
-  id-token: write              # pour d'éventuels besoins futurs
+
+env:
+  TEST_SERVICE: sut      # ou nom dans ton docker-compose.yml
+  COMPOSE_FILE: docker-compose.integration.yml  # ou docker-compose.integration.yml
 
 jobs:
-  # ─────────────────────────────────────
+  # ────────────────────────────────
   unit:
     runs-on: ubuntu-latest
+
     outputs:
-      ok: ${{ steps.ok.outputs.state }}
+      ok: ${{ steps.flag.outputs.state }}
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 22
-        cache: npm
-    - id: tests
-      run: |
-        npm ci
-        npm run build
-        npm test
-      continue-on-error: true
-    - id: ok
-      run: echo "state=${{ steps.tests.outcome }}" >> "$GITHUB_OUTPUT"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  # ─────────────────────────────────────
-  compose:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Run unit tests
+        id: tests
+        run: |
+          npm ci
+          npm run build
+          npm test
+        continue-on-error: true          # on capture l'état sans casser le job
+
+      - name: Save outcome
+        id: flag
+        run: echo "state=${{ steps.tests.outcome }}" >> "$GITHUB_OUTPUT"
+
+  # ────────────────────────────────
+  compose-e2e:
     needs: unit
     if: needs.unit.outputs.ok == 'success'
     runs-on: ubuntu-latest
-    services:
-      rabbitmq:
-        image: rabbitmq:3.13-management
-        ports: ['5672:5672']
+
     outputs:
-      ok: ${{ steps.comp_ok.outputs.state }}
+      ok: ${{ steps.flag.outputs.state }}
 
     steps:
-    - uses: actions/checkout@v4
-    - id: compose
-      run: |
-        docker compose -f docker-compose.yml \
-                       up --abort-on-container-exit --exit-code-from client-service
-      continue-on-error: true
-    - id: comp_ok
-      run: echo "state=${{ steps.compose.outcome }}" >> "$GITHUB_OUTPUT"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  # ─────────────────────────────────────
+      - name: Build & start stack
+        run: |
+          docker compose -f "$COMPOSE_FILE" up -d --build
+
+      - name: Run e2e tests inside container
+        id: e2e
+        run: |
+          docker compose exec -T "$TEST_SERVICE" npm run test:e2e
+        continue-on-error: true
+
+      - name: Stop stack
+        run: |
+          docker compose -f "$COMPOSE_FILE" down -v --remove-orphans
+
+      - name: Save outcome
+        id: flag
+        run: echo "state=${{ steps.e2e.outcome }}" >> "$GITHUB_OUTPUT"
+
+  # ────────────────────────────────
   handle-failure:
-    needs: [unit, compose]
-    if: >
-      needs.unit.outputs.ok != 'success' ||
-      needs.compose.outputs.ok != 'success'
+    needs: [unit, compose-e2e]
+    if: needs.unit.outputs.ok != 'success' || needs.compose-e2e.outputs.ok != 'success'
     runs-on: ubuntu-latest
+
+    env:
+      ERR_BRANCH: error-${{ github.sha }}
+
     steps:
-    - uses: actions/checkout@v4
-      with: { fetch-depth: 2 }
+      - name: Checkout with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
-    - name: Git config bot
-      run: |
-        git config user.email "bot@github"
-        git config user.name  "github-actions"
+      - name: Git config (bot)
+        run: |
+          git config user.email "bot@github"
+          git config user.name  "github-actions"
 
-    - name: Create error branch & rollback
-      run: |
-        ERR="error-${GITHUB_SHA::8}"
-        git switch -c "$ERR"
-        git push origin "$ERR"
-        git switch ci-test
-        git reset --hard HEAD~1
-        git push --force-with-lease origin ci-test
+      - name: Create error branch & rollback ci-test
+        run: |
+          git switch -c "$ERR_BRANCH"
+          git push origin "$ERR_BRANCH"
+          git switch ci-test
+          git reset --hard HEAD~1
+          git push --force-with-lease origin ci-test
 
-    - name: Notify pusher by email
-      uses: dawidd6/action-send-mail@v3
-      with:
-        server_address: ${{ secrets.SMTP_SERVER }}
-        server_port:     ${{ secrets.SMTP_PORT }}
-        username:        ${{ secrets.SMTP_USER }}
-        password:        ${{ secrets.SMTP_PASS }}
-        subject: "[CI] Échec des tests après merge dans ci-test"
-        to: ${{ github.event.pusher.email }}
-        from: ${{ secrets.SMTP_FROM }}
-        body: |
-          Les tests (unitaires ou intégration) ont échoué pour le commit
-          ${{ github.sha }} que tu viens de fusionner dans ci-test.
-          La branche ci-test a été restaurée et le commit stocké dans ${{ env.ERR }}.
+      - name: Send failure email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port:     ${{ secrets.SMTP_PORT }}
+          username:        ${{ secrets.SMTP_USER }}
+          password:        ${{ secrets.SMTP_PASS }}
+          subject: "[CI] Échec tests intégration sur ci-test"
+          to: ${{ github.event.pusher.email }}
+          from: ${{ secrets.SMTP_FROM }}
+          body: |
+            Les tests (unitaires ou intégration) ont échoué pour le commit
+            ${{ github.sha }} fusionné dans ci-test.
+            Le commit fautif a été retiré et archivé dans la branche
+            ${{ env.ERR_BRANCH }}. Consulte les logs GitHub Actions pour
+            corriger le problème.
