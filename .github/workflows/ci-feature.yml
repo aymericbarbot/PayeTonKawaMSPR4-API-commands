@@ -2,9 +2,9 @@ name: ci-feature
 
 on:
   push:
-    branches-ignore: [ main, dev ]   # toutes les autres branches
+    branches-ignore: [ main, dev, ci-tes ]   # toutes les autres branches
   pull_request:
-    branches: [ dev ]                # PR vers dev : mêmes tests, pas de rollback
+    branches: [ dev, ci-tes ]                # PR vers dev : mêmes tests, pas de rollback
 
 permissions:
   contents: write

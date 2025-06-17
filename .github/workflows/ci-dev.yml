@@ -1,52 +1,65 @@
+# .github/workflows/ci-ci-test.yml
 name: ci-dev
 
 on:
   push:
-    branches: [ dev ]    # déclenché après merge PR
+    branches: [ ci-test ]      # déclenché après merge d’une PR
 
 permissions:
   contents: write
-  id-token: write
+  id-token: write              # pour d'éventuels besoins futurs
 
 jobs:
+  # ─────────────────────────────────────
   unit:
     runs-on: ubuntu-latest
     outputs:
-      result: ${{ steps.outcome.outputs.state }}
+      ok: ${{ steps.ok.outputs.state }}
+
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-node@v4
-      with: { node-version: 22, cache: npm }
-    - id: test
+      with:
+        node-version: 22
+        cache: npm
+    - id: tests
       run: |
         npm ci
         npm run build
         npm test
       continue-on-error: true
-    - id: outcome
-      run: echo "state=${{ steps.test.outcome }}" >> $GITHUB_OUTPUT
+    - id: ok
+      run: echo "state=${{ steps.tests.outcome }}" >> "$GITHUB_OUTPUT"
 
-  compose-integration:
+  # ─────────────────────────────────────
+  compose:
     needs: unit
-    if: needs.unit.outputs.result == 'success'
+    if: needs.unit.outputs.ok == 'success'
     runs-on: ubuntu-latest
     services:
-      rabbitmq: { image: rabbitmq:3.13-management, ports: ['5672:5672'] }
+      rabbitmq:
+        image: rabbitmq:3.13-management
+        ports: ['5672:5672']
     outputs:
-      result: ${{ steps.outcome.outputs.state }}
+      ok: ${{ steps.comp_ok.outputs.state }}
+
     steps:
     - uses: actions/checkout@v4
     - id: compose
       run: |
-        docker compose -f docker-compose.integration.yml up --abort-on-container-exit --exit-code-from sut
+        docker compose -f docker-compose.integration.yml \
+                       up --abort-on-container-exit --exit-code-from sut
       continue-on-error: true
-    - id: outcome
-      run: echo "state=${{ steps.compose.outcome }}" >> $GITHUB_OUTPUT
+    - id: comp_ok
+      run: echo "state=${{ steps.compose.outcome }}" >> "$GITHUB_OUTPUT"
 
-  promote-or-rollback:
-    needs: [unit, compose-integration]
+  # ─────────────────────────────────────
+  handle-failure:
+    needs: [unit, compose]
+    if: >
+      needs.unit.outputs.ok != 'success' ||
+      needs.compose.outputs.ok != 'success'
     runs-on: ubuntu-latest
-    if: always()       # on veut exécuter quoi qu’il arrive
     steps:
     - uses: actions/checkout@v4
       with: { fetch-depth: 2 }
@@ -56,34 +69,26 @@ jobs:
         git config user.email "bot@github"
         git config user.name  "github-actions"
 
-    # ---- Succès total → promotion vers ci-test
-    - if: needs.unit.outputs.result == 'success' && needs.compose-integration.outputs.result == 'success'
-      name: Promote dev commit to ci-test
-      run: git push --force-with-lease origin HEAD:ci-test
-
-    # ---- Échec (unit ou compose) → branche error + rollback dev + mail
-    - if: needs.unit.outputs.result != 'success' || needs.compose-integration.outputs.result != 'success'
-      name: Handle failure
+    - name: Create error branch & rollback
       run: |
-        ERR_BRANCH="error-${GITHUB_SHA::8}"
-        git switch -c "$ERR_BRANCH"
-        git push origin "$ERR_BRANCH"
-        git switch dev
+        ERR="error-${GITHUB_SHA::8}"
+        git switch -c "$ERR"
+        git push origin "$ERR"
+        git switch ci-test
         git reset --hard HEAD~1
-        git push --force-with-lease origin dev
+        git push --force-with-lease origin ci-test
 
-    - name: Send failure mail
-      if: failure()    # s’exécute seulement si un des jobs a échoué
+    - name: Notify pusher by email
       uses: dawidd6/action-send-mail@v3
       with:
         server_address: ${{ secrets.SMTP_SERVER }}
         server_port:     ${{ secrets.SMTP_PORT }}
         username:        ${{ secrets.SMTP_USER }}
         password:        ${{ secrets.SMTP_PASS }}
-        subject: "[CI] Tests KO après merge dans dev"
+        subject: "[CI] Échec des tests après merge dans ci-test"
         to: ${{ github.event.pusher.email }}
         from: ${{ secrets.SMTP_FROM }}
         body: |
-          Les tests (unit ou intégration) ont échoué pour le commit ${{ github.sha }} fusionné dans dev.
-          Le commit a été retiré et placé dans la branche ${{ env.ERR_BRANCH }}.
-          Consulte l’action ci-dev pour les logs.
+          Les tests (unitaires ou intégration) ont échoué pour le commit
+          ${{ github.sha }} que tu viens de fusionner dans ci-test.
+          La branche ci-test a été restaurée et le commit stocké dans ${{ env.ERR }}.
