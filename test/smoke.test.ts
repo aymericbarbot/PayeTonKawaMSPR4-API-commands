@@ -2,6 +2,6 @@ import { strict as assert } from 'assert';
 
 describe('CI smoke test', () => {
   it('true should be true', () => {
-    assert.equal(true, false);
+    assert.equal(true, true);
   });
 });
