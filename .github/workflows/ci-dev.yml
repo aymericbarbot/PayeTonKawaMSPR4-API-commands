@@ -47,7 +47,7 @@ jobs:
     - uses: actions/checkout@v4
     - id: compose
       run: |
-        docker compose -f docker-compose.integration.yml \
+        docker compose -f docker-compose.yml \
                        up --abort-on-container-exit --exit-code-from sut
       continue-on-error: true
     - id: comp_ok
