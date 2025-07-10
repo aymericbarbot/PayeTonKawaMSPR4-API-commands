@@ -5,10 +5,10 @@ services:
       - "${COMMANDE_PORT}:3000"
     command: npm run start
     depends_on:
-      - service-bdd-mysql
+      - service-bdd-commandes-mysql
 
 
-  service-bdd-mysql:
+  service-bdd-commandes-mysql:
     image: mysql:8.0
     container_name: commandes-bdd-mysql
     restart: always
