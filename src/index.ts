@@ -13,12 +13,8 @@ app.get('/', (_req, res) => {
 sequelize.sync().then(() => {
   console.log('Base de données synchronisée');
   app.listen(port, () => {
-    console.log(`API Produits prête sur http://localhost:${port}`);
+    console.log(`API COMMANDES prête sur http://localhost:${port}`);
   });
 }).catch(console.error);
-
-app.listen(port, () => {
-  console.log(`Serveur lancé sur http://localhost:${port}`);
-});
 
 export default app;

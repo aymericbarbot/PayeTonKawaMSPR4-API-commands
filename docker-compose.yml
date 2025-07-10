@@ -4,6 +4,8 @@ services:
     ports:
       - "${COMMANDE_PORT}:3000"
     command: npm run start
+    depends_on:
+      - service-bdd-mysql
 
 
   service-bdd-mysql:
