@@ -19,4 +19,4 @@ RUN npm run build
 EXPOSE 3000
 
 # Commande pour démarrer l'app (attention : il faut que dist/index.js existe)
-CMD ["node", "dist/index.js"]
+CMD node dist/index.js & node dist/Consumer.js
