@@ -1,14 +1,7 @@
-import express from 'express';
-import commandeRoutes from './routes/commandeRoutes';
+import app from './app';
 import sequelize from './database/database';
-const app = express();
-const port = 3000;
 
-app.use('/commandes', commandeRoutes);
-
-app.get('/', (_req, res) => {
-  res.send('Hello, Express + TypeScript 👋');
-});
+const port = process.env.COMMANDE_PORT || 3000;
 
 sequelize.sync().then(() => {
   console.log('Base de données synchronisée');

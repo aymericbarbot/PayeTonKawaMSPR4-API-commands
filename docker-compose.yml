@@ -5,7 +5,11 @@ services:
       - "${COMMANDE_PORT}:3000"
     command: npm run start
     depends_on:
-      - service-bdd-commandes-mysql
+      service-bdd-commandes-mysql:
+        condition: service_healthy
+    env_file:
+      - .env
+      
 
 
   service-bdd-commandes-mysql:
